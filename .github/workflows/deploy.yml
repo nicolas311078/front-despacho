@@ -1,8 +1,8 @@
-name: Deploy Frontend to AWS EC2
+name: Deploy Frontend via AWS SSM
 
 on:
   push:
-    branches: [ "main" ] 
+    branches: [ "main" ]
 
 jobs:
   deploy:
@@ -12,33 +12,28 @@ jobs:
     - name: Checkout del código
       uses: actions/checkout@v3
 
-    - name: Desplegar en la instancia EC2 por SSH
-      uses: appleboy/ssh-action@master
+    - name: Configurar Credenciales de AWS
+      uses: aws-actions/configure-aws-credentials@v2
       with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_KEY }}
-        script: |
-          # 1. Crear la carpeta del proyecto en el EC2 si no existe y entrar
-          mkdir -p ~/frontend-app
-          cd ~/frontend-app
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: us-east-1  # Cambia esto si usas otra región (us-west-2, etc.)
 
-          # 2. Configurar Git para confiar en el directorio (evita bloqueos en Amazon Linux)
-          git config --global --add safe.directory ~/frontend-app
-
-          # 3. Si no hay repositorio clonado en el EC2, clonarlo. Si ya existe, actualizar el código
-          if [ ! -d ".git" ]; then
-            git clone https://github.com/${{ github.repository }}.git .
-          else
-            git pull origin main
-          fi
-
-          # 4. Construir la imagen de Docker usando el Dockerfile de tu proyecto
-          docker build -t frontend-innovatech .
-
-          # 5. Detener y borrar el contenedor anterior en caso de que ya estuviera corriendo
-          docker stop container-frontend || true
-          docker rm container-frontend || true
-
-          # 6. Encender el contenedor mapeando el puerto 80
-          docker run -d --name container-frontend -p 80:80 frontend-innovatech
+    - name: Ejecutar Despliegue en EC2 vía SSM
+      run: |
+        aws ssm send-command \
+          --instance-ids "${{ secrets.INSTANCE_ID }}" \
+          --document-name "AWS-RunShellScript" \
+          --comment "Desplegando la aplicación Frontend mediante GitHub Actions" \
+          --parameters 'commands=[
+            "mkdir -p ~/frontend-app",
+            "cd ~/frontend-app",
+            "git config --global --add safe.directory ~/frontend-app",
+            "if [ ! -d \".git\" ]; then git clone https://github.com/${{ github.repository }}.git .; else git pull origin main; fi",
+            "docker build -t frontend-innovatech .",
+            "docker stop container-frontend || true",
+            "docker rm container-frontend || true",
+            "docker run -d --name container-frontend -p 80:80 frontend-innovatech"
+          ]' \
+          --output text
