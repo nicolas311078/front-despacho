@@ -1,0 +1,44 @@
+name: Deploy Frontend to AWS EC2
+
+on:
+  push:
+    branches: [ "main" ] 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout del código
+      uses: actions/checkout@v3
+
+    - name: Desplegar en la instancia EC2 por SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          # 1. Crear la carpeta del proyecto en el EC2 si no existe y entrar
+          mkdir -p ~/frontend-app
+          cd ~/frontend-app
+
+          # 2. Configurar Git para confiar en el directorio (evita bloqueos en Amazon Linux)
+          git config --global --add safe.directory ~/frontend-app
+
+          # 3. Si no hay repositorio clonado en el EC2, clonarlo. Si ya existe, actualizar el código
+          if [ ! -d ".git" ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          else
+            git pull origin main
+          fi
+
+          # 4. Construir la imagen de Docker usando el Dockerfile de tu proyecto
+          docker build -t frontend-innovatech .
+
+          # 5. Detener y borrar el contenedor anterior en caso de que ya estuviera corriendo
+          docker stop container-frontend || true
+          docker rm container-frontend || true
+
+          # 6. Encender el contenedor mapeando el puerto 80
+          docker run -d --name container-frontend -p 80:80 frontend-innovatech
